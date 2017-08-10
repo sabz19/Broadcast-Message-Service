@@ -1,0 +1,114 @@
+#!/bin/bash
+
+#command line arguments
+CLASSPATH=Project/
+CLASSFILE=Node
+CONFIG=$1
+netid=$2
+
+#clear 
+echo -e "">debug.txt
+
+config_file_name=$(echo $CONFIG | rev | cut -f1 -d"/" |rev | cut -f1 -d ".")
+
+echo $config_file_name
+#extract lines from config file
+
+sed -e "s/#.*//" $CONFIG | sed -e "/^\s*$/d" >temp
+
+echo >>temp
+
+node_count=0
+host_names=()
+host_list=()
+port_ids=()
+node_map=()
+port_map=()
+counter=0
+current_line=1
+delay=0
+num_broadcasts=0
+
+while read line;
+do
+	#turn all spaces to single line
+	line=$(echo $line | tr -s ' ')
+	if [ $current_line -eq 1 ]; then
+		node_count=$(echo $line | cut -f1 -d" ")
+	elif [ $current_line -eq 2 ]; then
+		contents=($line)
+		delay=${contents[1]}
+		num_broadcasts=${contents[0]}
+		
+	else
+		stringarray=($line)
+		node_id=${stringarray[0]}
+		host=${stringarray[1]}
+		host_list+=($host)
+		port_id=${stringarray[2]}
+		port_ids+=($port_id)
+		node_map+=(['"$node_id"']=$port_id)
+		port_map+=(['"$port_id"']=$host)
+		
+	fi
+	let current_line+=1
+
+
+done < temp
+
+
+line_count=0
+counter=0
+javac -cp /home/012/s/sx/sxn164530/Project/uncommons-maths-1.2.3.jar $CLASSPATH$CLASSFILE.java
+echo>>temp
+
+echo delay is $delay 
+echo broadcast is $num_broadcasts
+
+while read line
+do
+		
+	let line_count+=1
+	neighbor_list_hosts=""
+	neighbor_list_ports=""
+	neighbor_list_ids=""
+	line=$(echo $line | tr -s ' ')
+
+#	if [ $line_count == 17 ]; then
+#		break
+#	fi
+
+	if [ $line_count -eq 1 ]; then
+		continue
+	elif [ $line_count -eq 2 ]; then
+		continue
+	else
+		
+		line=$(echo $line | cut -d " " -f 4-)
+		for i in $line
+			do 
+			
+				neighbor_list_hosts="${neighbor_list_hosts}${port_map[${node_map["$i"]}]},"
+				neighbor_list_ports="${neighbor_list_ports}${node_map[$i]},"
+				neighbor_list_ids="${neighbor_list_ids}$i,"
+			done
+		host=${host_list[$counter]}
+		port=${port_ids[$counter]}
+		echo host is ${host_list[$counter]}
+		echo port is ${port_ids[$counter]}
+		echo neighbor list is ${neighbor_list_hosts}
+		echo port list is ${neighbor_list_ports}
+		echo neighbor_ids is ${neighbor_list_ids}
+
+		ssh $host java -cp /home/012/s/sx/sxn164530/Project/uncommons-maths-1.2.3.jar:. $CLASSPATH$CLASSFILE $node_count $counter ${port_ids[$counter]} ${host_list[$counter]} $neighbor_list_hosts $neighbor_list_ports $neighbor_list_ids $num_broadcasts $delay &
+	let counter+=1
+	
+
+	fi
+	
+done < temp
+
+echo count is $counter
+
+
+		

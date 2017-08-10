@@ -1,0 +1,38 @@
+#!/bin/bash
+
+CONFIG=$1
+
+cat $CONFIG | sed -e "s/#.*//" | sed -e "/^\s*$/d" |
+(
+	read i
+	#echo $i
+	nodes=$(echo $i | cut -f1 -d" ")
+	read i
+	#echo $i
+	line=$(echo $i | cut -f1 -d" " | cut -f2 -d" ")
+		
+	while read line
+	do
+		host=$(echo $line | awk '{print $2}')
+
+		echo host is $host
+
+		ssh $host "ps -fu $USER | grep -v color=auto | grep java | tr -s ' '| cut -f2 -d ' ' | xargs kill  "&
+
+		n=$((n + 1))
+		if [ $n -gt $nodes ];then
+			break
+		fi
+	done
+
+		ssh  $host "ps -fu $USER | grep -v color=auto | grep java | tr -s ' '| cut -f2 -d ' ' | xargs kill " &
+)
+
+# Removing logs 
+LOGPATH=Project/Logs/*
+SUMPATH=Project/Logs/Sums/*
+CHPATH=Project/Logs/Children/*
+rm $LOGPATH
+rm $SUMPATH
+rm $CHPATH
+echo "Cleanup complete"

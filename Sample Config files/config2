@@ -1,0 +1,9 @@
+#number of nodes
+3
+#num broadcasts and delay
+1 5
+#node id HostName Port Neighbor List
+0 dc22 8001 1 2
+1 dc23 8002 0 2 
+2 dc24 8003 1 0
+
