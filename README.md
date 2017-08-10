@@ -2,5 +2,5 @@
 Concurrent broadcasts of messages from all machines
 
 ## Scripts
-Run `./launcher` 'config-name' to compile and run the program </n>
-Run `./cleanup` 'config-name' to kill all processes running
+* `./launcher` 'config-name' compiles and launches the program on all specified machines in the config file
+* `./cleanup` 'config-name' to kill all processes running </n> deletes all log files and kills all running processes
