@@ -4,8 +4,6 @@ import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.CharBuffer;
-import java.nio.channels.SelectionKey;
-import java.nio.channels.Selector;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetEncoder;
 import java.util.logging.FileHandler;
@@ -22,9 +20,7 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.util.HashMap;
 import java.util.HashSet;
-import java.util.Iterator;
 import java.util.Random;
-import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
 import java.util.concurrent.ConcurrentHashMap;
@@ -33,7 +29,6 @@ import com.sun.nio.sctp.*;
 
 public class Node {
 
-	Selector selector,client_selector;
 	Object buf_lock,phase_lock,broad_cast_converge_cast_lock;
 	int port,num_nodes,node_id,num_ack = 0,num_nack = 0,parent = -1,converge_cast_ack_counter = 0;
 	static double exp_distribution[];
@@ -75,8 +70,8 @@ public class Node {
 		parentMap = new ConcurrentHashMap<>();
 		convergeCastMap = new ConcurrentHashMap<>();
 		converge_cast_recieved_MAP = new ConcurrentHashMap<>();
-		selector = Selector.open();
-		client_selector = Selector.open();
+		
+		
 		this.num_nodes = num_nodes;
 		this.node_id = node_id;
 		this.port = port;
@@ -117,10 +112,6 @@ public class Node {
 		Thread.sleep(2000);
 		openAllConnections();
 		//closeHandler();
-		Thread.sleep(4000);
-		IncomingChannel incoming = new IncomingChannel();
-		Thread thread = new Thread(incoming);
-		thread.start();
 		
 	}
 	
@@ -131,11 +122,8 @@ public class Node {
 			boolean connection_established = false;
 			while(!connection_established){
 				try {
-					
 					neighbor.clientChannel = SctpChannel.open();
-				//	neighbor.clientChannel.configureBlocking(false);
 					neighbor.clientChannel.connect(neighbor.serverAddress);
-					//neighbor.clientChannel.register(client_selector, SelectionKey.OP_CONNECT);
 					connection_established = true;
 				} catch (IOException e) {
 					Thread.sleep(2000);
@@ -289,20 +277,17 @@ public class Node {
 		public void startServer() throws IOException {
 				
 			SctpServerChannel server = SctpServerChannel.open();
-			
 			InetSocketAddress serverAddress = new InetSocketAddress(port);
 			server.bind(serverAddress);
-			
-			int i = 0;
-			while(i < neighbors.size()){	
-				SctpChannel serverChannel = server.accept();
-				serverChannel.configureBlocking(false);
-				serverChannel.register(selector, SelectionKey.OP_READ);
-				logger.info("Connection established");
-				i++;
-			}	
 		
-			
+				while(true){	
+				SctpChannel serverChannel = server.accept();
+				logger.info("Connection established");
+				IncomingChannel incoming = new IncomingChannel(serverChannel);
+				Thread runIncoming = new Thread(incoming);
+				runIncoming.start();
+				
+			}	
 		}
 		
 	}
@@ -321,43 +306,27 @@ public class Node {
 
 			while(true){				
 				ByteBuffer receiveBuf = ByteBuffer.allocate(60);
-				selector.select();
-				Set selectedKeys = selector.selectedKeys();
-				logger.info(Integer.toString(selectedKeys.size()));
-				Iterator iter = selectedKeys.iterator();
-				logger.info("Here in receive function");
-				while(iter.hasNext()){
-					SelectionKey key = (SelectionKey) iter.next();
-					SctpChannel channel = (SctpChannel)key.channel();
-					
-					if(key.isReadable()){
-						
-						MessageInfo messageInfo = channel.receive(receiveBuf,null,null);
-						
+				MessageInfo messageInfo = serverChannel.receive(receiveBuf,null,null);
+				if(receiveBuf != null){
+					synchronized (buf_lock){	
 						receiveBuf.flip();
 						incomingMessage = BytetoString(receiveBuf);
-						logger.info("Incoming message is "+incomingMessage);
-						if(incomingMessage.trim().length()>0){
-							
-							String messageSplit [] = incomingMessage.split(":");
-							sender_id = Integer.parseInt(messageSplit[0]);
-							message_type = messageSplit[1].trim();
+						String messageSplit [] = incomingMessage.split(":");
+						sender_id = Integer.parseInt(messageSplit[0]);
+						message_type = messageSplit[1].trim();
 						//Check if message contains sum_value
 						
 						//logger.info("message type is " + message_type);
 						//logger.info("Incoming message is "+incomingMessage);
-							processMessages();
-						}
-					
+						processMessages();
+						buf_lock.notifyAll();
 					}
-					iter.remove();
 				}
-				
 			}
 		}
 		
-		public IncomingChannel() throws IOException{
-			
+		public IncomingChannel(SctpChannel serverChannel) throws IOException{
+			this.serverChannel = serverChannel;
 		}
 		
 		
@@ -451,7 +420,10 @@ public class Node {
 					writeChildren();
 					Thread.sleep(6000);
 					
-					
+					synchronized (phase_lock){
+						spanningTreePhase = false;
+						phase_lock.notify();
+					}
 					//start_broadcast.start();
 				}
 		
@@ -530,7 +502,10 @@ public class Node {
 						update_Neighbors();
 						writeChildren();
 						Thread.sleep(13000);
-					
+						synchronized (phase_lock){
+							spanningTreePhase = false;
+							phase_lock.notifyAll();
+						}
 						Thread start_broadcast = new Thread(new Runnable() {
 	
 							@Override
@@ -593,8 +568,8 @@ public class Node {
 		InetSocketAddress serverAddress;
 		String IPAddress;
 		
-		public Neighbor(int node_id,String host_name,int port) throws UnknownHostException{
-			
+		public Neighbor(SctpServerChannel serverChannel,String host_name,int node_id,int port) throws UnknownHostException{
+			this.serverChannel = serverChannel;
 			this.host_name = host_name;
 			this.port_number = port;
 			this.node_id = node_id;
@@ -602,7 +577,7 @@ public class Node {
 			IPAddress = InetAddress.getByName(host_name).toString();
 			
 		}
-		public Neighbor(SctpServerChannel server, String host, int node_id, int i){
+		public Neighbor(int node_id){
 			this.node_id = node_id;
 		}
 		
@@ -652,10 +627,8 @@ public class Node {
 		
 			for(Neighbor neighbor : neighbors){
 				if(neighbor.node_id!=parent){
-					
 					ByteBuffer sbuf = ByteBuffer.allocate(60);
 					logger.info("Sending explore messages to "+neighbor.node_id);
-					logger.info("message is " + message);
 					sbuf.put(message.getBytes());
 					sbuf.flip();
 					MessageInfo messageInfo = MessageInfo.createOutgoing(null,0);	
@@ -866,9 +839,7 @@ public class Node {
 		Random rng = new MersenneTwisterRNG();
 		ExponentialGenerator exp = new ExponentialGenerator(1, rng);
 		for(int i = 1;i<=num_broadcast;i++){
-			
 			exp_distribution[i] = Math.round(exp.nextValue()*delay);
-			
 		}
 		Arrays.sort(exp_distribution);
 		
